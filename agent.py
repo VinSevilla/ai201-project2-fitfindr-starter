@@ -18,6 +18,8 @@ Usage (once implemented):
     print(result["error"])   # None on success
 """
 
+import re
+
 from tools import search_listings, suggest_outfit, create_fit_card
 
 
@@ -92,9 +94,59 @@ def run_agent(query: str, wardrobe: dict) -> dict:
     Before writing code, complete the Planning Loop and State Management sections
     of planning.md — your implementation should match what you described there.
     """
-    # TODO: implement the planning loop
+    # Step 1: initialize session
     session = _new_session(query, wardrobe)
-    session["error"] = "Planning loop not yet implemented."
+
+    # Step 2: parse query with regex
+    price_match = re.search(r'(?:under|max|below|less\s+than)?\s*\$(\d+(?:\.\d+)?)', query, re.IGNORECASE)
+    if not price_match:
+        price_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:dollars?|bucks?)', query, re.IGNORECASE)
+    max_price = float(price_match.group(1)) if price_match else None
+
+    size_match = re.search(r'\bsize\s+([A-Z]{1,3}(?:/[A-Z]{1,3})?)\b', query, re.IGNORECASE)
+    size = size_match.group(1).upper() if size_match else None
+
+    desc = query
+    if price_match:
+        desc = desc[:price_match.start()] + desc[price_match.end():]
+    if size_match:
+        desc = desc[:size_match.start()] + desc[size_match.end():]
+    desc = re.sub(r"\b(?:under|max|below|less\s+than|i'?m?\s+looking\s+for|find\s+me|show\s+me)\b", "", desc, flags=re.IGNORECASE)
+    desc = re.sub(r"\s+", " ", desc).strip(" .,")
+    if not desc:
+        desc = query
+
+    session["parsed"] = {"description": desc, "size": size, "max_price": max_price}
+
+    # Step 3: search — return early if nothing matches
+    session["search_results"] = search_listings(
+        description=session["parsed"]["description"],
+        size=session["parsed"]["size"],
+        max_price=session["parsed"]["max_price"],
+    )
+    if not session["search_results"]:
+        session["error"] = (
+            "No listings found matching your search. "
+            "Try different keywords, a larger size range, or a higher budget."
+        )
+        return session
+
+    # Step 4: pick top result
+    session["selected_item"] = session["search_results"][0]
+
+    # Step 5: get outfit suggestion
+    session["outfit_suggestion"] = suggest_outfit(
+        new_item=session["selected_item"],
+        wardrobe=session["wardrobe"],
+    )
+
+    # Step 6: generate fit card
+    session["fit_card"] = create_fit_card(
+        outfit=session["outfit_suggestion"],
+        new_item=session["selected_item"],
+    )
+
+    # Step 7: return completed session
     return session
 
 
