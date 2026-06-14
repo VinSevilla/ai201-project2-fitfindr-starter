@@ -117,36 +117,47 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         desc = query
 
     session["parsed"] = {"description": desc, "size": size, "max_price": max_price}
+    print(f"[1] Parsed query → description: '{desc}' | size: {size} | max_price: {max_price}")
 
     # Step 3: search — return early if nothing matches
+    print(f"[2] Calling search_listings...")
     session["search_results"] = search_listings(
         description=session["parsed"]["description"],
         size=session["parsed"]["size"],
         max_price=session["parsed"]["max_price"],
     )
+    print(f"    → {len(session['search_results'])} result(s) found")
+
     if not session["search_results"]:
         session["error"] = (
             "No listings found matching your search. "
             "Try different keywords, a larger size range, or a higher budget."
         )
+        print(f"    → No results. Stopping early.")
         return session
 
     # Step 4: pick top result
     session["selected_item"] = session["search_results"][0]
+    print(f"[3] Selected item → '{session['selected_item']['title']}' (${session['selected_item']['price']})")
 
     # Step 5: get outfit suggestion
+    print(f"[4] Calling suggest_outfit with selected_item + wardrobe...")
     session["outfit_suggestion"] = suggest_outfit(
         new_item=session["selected_item"],
         wardrobe=session["wardrobe"],
     )
+    print(f"    → outfit_suggestion: '{session['outfit_suggestion'][:80]}...'")
 
     # Step 6: generate fit card
+    print(f"[5] Calling create_fit_card with outfit_suggestion + selected_item...")
     session["fit_card"] = create_fit_card(
         outfit=session["outfit_suggestion"],
         new_item=session["selected_item"],
     )
+    print(f"    → fit_card: '{session['fit_card'][:80]}...'")
 
     # Step 7: return completed session
+    print(f"[6] Done. Returning session.")
     return session
 
 
