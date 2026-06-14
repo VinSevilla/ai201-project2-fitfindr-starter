@@ -41,67 +41,69 @@ def search_listings(
     size: str | None = None,
     max_price: float | None = None,
 ) -> list[dict]:
-    """
-    Search the mock listings dataset for items matching the description,
-    optional size, and optional price ceiling.
 
-    Args:
-        description: Keywords describing what the user is looking for
-                     (e.g., "vintage graphic tee").
-        size:        Size string to filter by, or None to skip size filtering.
-                     Matching is case-insensitive (e.g., "M" matches "S/M").
-        max_price:   Maximum price (inclusive), or None to skip price filtering.
+    listings = load_listings()
 
-    Returns:
-        A list of matching listing dicts, sorted by relevance (best match first).
-        Returns an empty list if nothing matches — does NOT raise an exception.
+    if max_price is not None:
+        listings = [l for l in listings if l["price"] <= max_price]
 
-    Each listing dict has the following fields:
-        id, title, description, category, style_tags (list), size,
-        condition, price (float), colors (list), brand, platform
+    if size is not None:
+        listings = [l for l in listings if size.lower() in l["size"].lower()]
 
-    TODO:
-        1. Load all listings with load_listings().
-        2. Filter by max_price and size (if provided).
-        3. Score each remaining listing by keyword overlap with `description`.
-        4. Drop any listings with a score of 0 (no relevant matches).
-        5. Sort by score, highest first, and return the listing dicts.
+    keywords = [w.lower() for w in description.split()]
 
-    Before writing code, fill in the Tool 1 section of planning.md.
-    """
-    # Replace this with your implementation
-    return []
+    def score(listing):
+        searchable = (
+            listing["title"].lower()
+            + " " + listing["description"].lower()
+            + " " + " ".join(listing["style_tags"]).lower()
+        )
+        return sum(1 for kw in keywords if kw in searchable)
+
+    scored = [(score(l), l) for l in listings]
+    scored = [(s, l) for s, l in scored if s > 0]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [l for _, l in scored]
 
 
 # ── Tool 2: suggest_outfit ────────────────────────────────────────────────────
 
 def suggest_outfit(new_item: dict, wardrobe: dict) -> str:
-    """
-    Given a thrifted item and the user's wardrobe, suggest 1–2 complete outfits.
 
-    Args:
-        new_item: A listing dict (the item the user is considering buying).
-        wardrobe: A wardrobe dict with an 'items' key containing a list of
-                  wardrobe item dicts. May be empty — handle this gracefully.
+    client = _get_groq_client()
+    item_desc = (
+        f"{new_item['title']} — {new_item['category']}, "
+        f"{', '.join(new_item.get('colors', []))}, "
+        f"style: {', '.join(new_item.get('style_tags', []))}"
+    )
 
-    Returns:
-        A non-empty string with outfit suggestions.
-        If the wardrobe is empty, offer general styling advice for the item
-        rather than raising an exception or returning an empty string.
+    if not wardrobe.get("items"):
+        prompt = (
+            f"I just thrifted this item: {item_desc}. "
+            "I don't have my wardrobe info handy. "
+            "Give me 1–2 general outfit ideas — what types of pieces pair well with it, "
+            "what vibe or aesthetic it fits, and how I could style it."
+        )
+    else:
+        wardrobe_lines = []
+        for w in wardrobe["items"]:
+            note = f" ({w['notes']})" if w.get("notes") else ""
+            wardrobe_lines.append(f"- {w['name']}{note}")
+        wardrobe_text = "\n".join(wardrobe_lines)
 
-    TODO:
-        1. Check whether wardrobe['items'] is empty.
-        2. If empty: call the LLM with a prompt for general styling ideas
-           (what kinds of items pair well, what vibe it suits, etc.).
-        3. If not empty: format the wardrobe items into a prompt and ask
-           the LLM to suggest specific outfit combinations using the new item
-           and named pieces from the wardrobe.
-        4. Return the LLM's response as a string.
+        prompt = (
+            f"I'm thinking of buying this thrifted item: {item_desc}.\n\n"
+            f"Here's what I already own:\n{wardrobe_text}\n\n"
+            "Suggest 1–2 complete outfits that use the new item combined with specific pieces "
+            "from my wardrobe. Name the exact pieces you're pairing together and describe the vibe."
+        )
 
-    Before writing code, fill in the Tool 2 section of planning.md.
-    """
-    # Replace this with your implementation
-    return ""
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+    return response.choices[0].message.content.strip()
 
 
 # ── Tool 3: create_fit_card ───────────────────────────────────────────────────
@@ -133,5 +135,22 @@ def create_fit_card(outfit: str, new_item: dict) -> str:
 
     Before writing code, fill in the Tool 3 section of planning.md.
     """
-    # Replace this with your implementation
-    return ""
+    if not outfit or not outfit.strip():
+        return "Error: no outfit suggestion available to generate a fit card."
+
+    client = _get_groq_client()
+    prompt = (
+        f"I thrifted a '{new_item['title']}' for ${new_item['price']} on {new_item['platform']}. "
+        f"Here's how I'm styling it:\n\n{outfit}\n\n"
+        "Write a 2–4 sentence Instagram caption for this outfit. "
+        "Make it sound like a real person wrote it — casual, specific about the vibe, not like a product description. "
+        "Mention the item name, price, and platform exactly once each, worked in naturally. "
+        "No hashtags."
+    )
+
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=1.0,
+    )
+    return response.choices[0].message.content.strip()
